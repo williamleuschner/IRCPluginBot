@@ -7,7 +7,6 @@
 # Used for configuration files
 import configparser
 # Used for interacting with IRC
-from ircbotframe import ircBot
 
 config_file_loc = "config/irc_plugin_bot.ini"
 
@@ -71,23 +70,25 @@ def run_console():
 def main():
     """
     Run the bot.
+    doctest skips this one because I haven't figured out a way to cleanly
+    make the bot quit after a connection is made.
     Example:
     >>> main() # doctest: +SKIP
     """
     # Pull out just the server configuration
     serverconf = config['server']
-    # Create an ircBot object to interface with the server
-    bot = ircBot(
-        serverconf.get("hostname", "irc.ircfox.net"),
-        int(serverconf.get("port", "6697")),
-        serverconf.get("nick", "FurBot"),
-        serverconf.get("realname", "A plugin-exensible IRC bot"),
-        ssl=bool(serverconf.get("ssl", "True")),
-    )
-    # Set debugging, if necessary
-    bot.debugging(bool(config['debug'].get("debug", "False")))
-    # Runs the bot.
-    bot.run()
+    # # Create an ircBot object to interface with the server
+    # bot = ircBot(
+    #     serverconf.get("hostname", "irc.ircfox.net"),
+    #     int(serverconf.get("port", "6697")),
+    #     serverconf.get("nick", "FurBot"),
+    #     serverconf.get("realname", "A plugin-exensible IRC bot"),
+    #     ssl=bool(serverconf.get("ssl", "True")),
+    # )
+    # # Set debugging, if necessary
+    # bot.debugging(bool(config['debug'].get("debug", "False")))
+    # # Runs the bot.
+    # bot.run()
     # Starts the console.
     run_console()
 
