@@ -1,2 +1,3 @@
 config/irc_plugin_bot.ini
 *.sublime-*
+__pycache__
