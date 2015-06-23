@@ -56,6 +56,12 @@ class ActionProvider:
     __metaclass__ = PluginMount
 
 
+# Temporary testing function to handle the callback.
+def temp_func(msg_obj):
+    """Temporary!"""
+    print(str(msg_obj))
+
+
 # Handles user input from the command line, in order to control the bot
 # without being on IRC
 def run_console():
@@ -86,7 +92,8 @@ def main():
         serverconf.get("realname", "A plugin-exensible IRC bot"),
         ssl=bool(serverconf.get("ssl", "True"))
     )
-    irc.debugging(bool(config['debug'].get("debug", "True")))
+    irc.set_debugging(bool(config['debug'].get("debug", "True")))
+    irc.register_callback(temp_func)
     irc.start()
     # Starts the console.
     run_console()

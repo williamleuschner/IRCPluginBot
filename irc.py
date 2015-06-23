@@ -44,8 +44,9 @@ class IRCInputBuffer():
 
     def next_line(self):
         """API-exposed function to get the next line"""
+        print("self.lines =", self.lines)
         # Stop execution until a line is recieved
-        while len(self.lines == 0):
+        while len(self.lines) == 0:
             # Try to get another line
             try:
                 self.__recieve()
@@ -63,7 +64,7 @@ class IRCOutputBuffer():
     """
     Buffered Output for an IRC connection
     """
-    def __init__(self, socket, max_messages, time_limit):
+    def __init__(self, socket):
         self.is_in_error = False
         # Are there lines in the queue?
         self.hasqueue = False
@@ -73,9 +74,9 @@ class IRCOutputBuffer():
         self.consecutive_messages = 0
         # IRC channel floods are created as 'messages per unit of time'.
         # max_messages is messages,
-        self.max_messages = max_messages
+        self.max_messages = 100
         # time_limit is unit of time.
-        self.time_limit = time_limit
+        self.time_limit = 1
 
     def __send(self):
         """Private function to send a message."""
@@ -140,40 +141,65 @@ class IRCOutputBuffer():
                 print("Output error:", e)
                 print("Occurred during sending of string \"", string, "\".")
 
-    def is_in_error(self):
+    def get_error_state(self):
         """
         Returns `self.is_in_error`
         Example:
         >>> O = IRCOutputBuffer() # doctest +SKIP
-        >>> O.is_in_error() # doctest +SKIP
+        >>> O.get_error_state() # doctest +SKIP
         True
         """
         return self.is_in_error
 
+    def set_chan_flood_settings(self, max_messages, time_limit):
+        """
+        Sets the channel flood settings for the class.
+        Example:
+        >>> O = IRCOutputBuffer() # doctest +SKIP
+        >>> O.set_chan_flood_settings(6, 10) # doctest +SKIP
+        """
+        self.max_messages = max_messages
+        self.time_limit = time_limit
+
 
 class Message():
-    def __init__(self, msg_type, message, headers, nick, userhost):
+    def __init__(
+        self,
+        msg_type,
+        message,
+        headers,
+        nick=None,
+        userhost=None,
+        server_hostname=None
+    ):
         self.type = msg_type
         self.message = message
         self.headers = headers
-        self.nick = nick
-        self.userhost = userhost
-
-    def __init__(self, msg_type, message, headers, server_hostname):
-        self.type = msg_type
-        self.message = message
-        self.headers = headers
-        self.server_hostname = server_hostname
+        if nick is None and userhost is None and server_hostname is None:
+            raise AttributeError(
+                "You must specify either nick and userhost or server_hostname."
+            )
+        elif nick is None and userhost is None and server_hostname is not None:
+            self.server_hostname = server_hostname
+            self.is_server_msg = True
+        elif (
+            nick is not None and
+            userhost is not None and
+            server_hostname is None
+        ):
+            self.nick = nick
+            self.userhost = userhost
+            self.is_server_msg = False
+        else:
+            raise AttributeError(
+                (
+                    "You must specify only either nick and userhost "
+                    "or server_hostname."
+                )
+            )
 
     def __repr__(self):
-        is_server_msg = False
-        try:
-            a = self.server_hostname
-        except AttributeError:
-            is_server_msg = True
-        finally:
-            del a
-        if is_server_msg is not True:
+        if self.is_server_msg is not True:
             repr_dict = {
                 'type': self.type,
                 'message': self.message,
@@ -243,14 +269,14 @@ class IRC(threading.Thread):
         Connect to the server, optionally using SSL.
         """
         # Debug print the hostname.
-        self.__print("Connecting to", self.hostname)
+        self.__print("Connecting to %s" % self.hostname)
         # Create a socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if self.ssl:
             # If using SSL, secure the socket.
             self.socket = ssl.wrap_socket(self.socket)
         # Connect to the server
-        self.socket.connect(self.hostname, self.port)
+        self.socket.connect((self.hostname, self.port))
         # Give instances of the input and output buffers access to the socket.
         self.input_buffer = IRCInputBuffer(self.socket)
         self.output_buffer = IRCOutputBuffer(self.socket)
@@ -258,10 +284,10 @@ class IRC(threading.Thread):
             # If a server password is set, send it.
             self.output_buffer.send("PASS %s" % self.password)
         # Send the nickname
-        self.output_buffer.send("NICK %s" % self.nickname)
+        self.output_buffer.send("NICK %s" % self.nick)
         # Send the username and realname
         self.output_buffer.send(
-            "USER %s 0 * :%s" % (self.nickname, self.realname)
+            "USER %s 0 * :%s" % (self.nick, self.realname)
         )
 
     def __disconnect(self, quit_message="Goodbye!"):
@@ -301,6 +327,8 @@ class IRC(threading.Thread):
             message_split = line_list[1:]
             # Stick what's left back together with colons
             message = ":".join(message_split)
+        else:
+            message = line_list[1:]
         # Split the headers string into a list
         headers = line_list[0].split(" ")
         # The nick!userhost of the sender is the first header
@@ -323,8 +351,8 @@ class IRC(threading.Thread):
                     message_type,
                     message,
                     headers,
-                    nick,
-                    userhost
+                    nick=nick,
+                    userhost=userhost
                 )
             else:
                 message_type = headers[1]
@@ -334,7 +362,7 @@ class IRC(threading.Thread):
                     message_type,
                     message,
                     headers,
-                    nick_userhost
+                    server_hostname=nick_userhost
                 )
             return msg_obj
 
@@ -416,6 +444,7 @@ class IRC(threading.Thread):
                     )
                     self.reconnect()
                 # If it's a PING, respond immediately.
+                print(line)
                 if line.startswith("PING"):
                     self.output_buffer.send_now("PONG %s" % line.split()[1])
                 else:
@@ -424,7 +453,7 @@ class IRC(threading.Thread):
                     message = self.__message_factory(line)
                     self.callback(message)
                 # If the output buffer encounters an error, reconnect.
-                if self.output_buffer.is_in_error():
+                if self.output_buffer.get_error_state():
                     self.__print(
                         "Output buffer encountered an error. Reconnecting..."
                     )
@@ -554,3 +583,21 @@ class IRC(threading.Thread):
         """
         self.__print("Setting debugging to %s" % str(new_state))
         self.debugging = new_state
+
+    def update_chan_flood_settings(self, max_messages, time_limit):
+        """
+        Update the channel flood limits.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.update_chan_flood_settings(6, 10)
+        """
+        self.output_buffer.set_chan_flood_settings(max_messages, time_limit)
+
+    def register_callback(self, func):
+        """
+        Register the function that should recieve the Message objects
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.register_callback(my_func)
+        """
+        self.callback = func
