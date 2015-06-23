@@ -9,7 +9,7 @@ import configparser
 # Used for interacting with IRC
 from irc import IRC
 
-config_file_loc = "config/irc_plugin_bot.ini"
+config_file_loc = "config/irc_plugin_bot-debug.ini"
 
 config = configparser.ConfigParser()
 config.read(config_file_loc)
@@ -62,6 +62,23 @@ def temp_func(msg_obj):
     print(str(msg_obj))
 
 
+def str2bool(to_test):
+    """
+    Convert a string into a boolean.
+    Example:
+    >>> str2bool("False")
+    False
+    >>> str2bool("True")
+    True
+    """
+    if to_test == "True":
+        return True
+    elif to_test == "False":
+        return False
+    else:
+        return None
+
+
 # Handles user input from the command line, in order to control the bot
 # without being on IRC
 def run_console():
@@ -84,13 +101,15 @@ def main():
     """
     # Pull out just the server configuration
     serverconf = config['server']
+    # Testing
+    print("Testing SSL thingy:", serverconf.get("ssl", "False"))
     # Create an ircBot object to interface with the server
     irc = IRC(
         serverconf.get("hostname", "irc.ircfox.net"),
         int(serverconf.get("port", "6697")),
         serverconf.get("nick", "FurBot"),
         serverconf.get("realname", "A plugin-exensible IRC bot"),
-        ssl=bool(serverconf.get("ssl", "True"))
+        ssl=str2bool(serverconf.get("ssl", "False"))
     )
     irc.set_debugging(bool(config['debug'].get("debug", "True")))
     irc.register_callback(temp_func)

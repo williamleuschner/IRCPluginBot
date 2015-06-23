@@ -1,3 +1,4 @@
 config/irc_plugin_bot.ini
 *.sublime-*
 __pycache__
+config/irc_plugin_bot-debug.ini

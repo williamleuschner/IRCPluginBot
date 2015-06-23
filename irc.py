@@ -29,7 +29,7 @@ class IRCInputBuffer():
             # Try to pull more data from the socket and decode it as UTF-8
             latest = self.socket.recv(4096).decode('UTF-8')
             # Stick it on to any previous data
-            data = "%s%s" % (self.buffer, latest)
+            data = self.buffer + latest
         except socket.error as e:
             # The socket broke. Fail, and let something above me handle it
             raise socket.error(e)
@@ -44,7 +44,6 @@ class IRCInputBuffer():
 
     def next_line(self):
         """API-exposed function to get the next line"""
-        print("self.lines =", self.lines)
         # Stop execution until a line is recieved
         while len(self.lines) == 0:
             # Try to get another line
@@ -54,10 +53,10 @@ class IRCInputBuffer():
                 # Rethrow the exception up the chain
                 raise socket.error(e)
             # Pull the first line off the stack of lines
-            first_line = self.lines[0]
-            self.lines = self.lines[1:]
-            # Return the first line
-            return first_line
+        first_line = self.lines[0]
+        self.lines = self.lines[1:]
+        # Return the first line
+        return first_line
 
 
 class IRCOutputBuffer():
@@ -272,7 +271,8 @@ class IRC(threading.Thread):
         self.__print("Connecting to %s" % self.hostname)
         # Create a socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if self.ssl:
+        print("self.ssl =", self.ssl)
+        if self.ssl is True:
             # If using SSL, secure the socket.
             self.socket = ssl.wrap_socket(self.socket)
         # Connect to the server
@@ -311,7 +311,7 @@ class IRC(threading.Thread):
         contains a raw line from an IRC server.
         Example:
         >>> self.__message_factory("PRIVMSG #bottesting :The sky is falling!")
-        TODO: make Message class
+        PRIVMSG #bottesting :The sky is falling!
         """
         # :user!username@HostHash.net PRIVMSG #channel :Message
         # :irc.example.com 332 nick #channel :Topic
@@ -327,8 +327,10 @@ class IRC(threading.Thread):
             message_split = line_list[1:]
             # Stick what's left back together with colons
             message = ":".join(message_split)
-        else:
-            message = line_list[1:]
+        elif len(line_list) == 2:
+            message = line_list[1]
+        elif len(line_list) < 2:
+            message = ""
         # Split the headers string into a list
         headers = line_list[0].split(" ")
         # The nick!userhost of the sender is the first header
@@ -356,7 +358,7 @@ class IRC(threading.Thread):
                 )
             else:
                 message_type = headers[1]
-                self.__print("[%s] %s" % (message_type, message))
+                # self.__print("[%s] %s" % (message_type, message))
                 # Make Message object
                 msg_obj = Message(
                     message_type,
@@ -444,7 +446,6 @@ class IRC(threading.Thread):
                     )
                     self.reconnect()
                 # If it's a PING, respond immediately.
-                print(line)
                 if line.startswith("PING"):
                     self.output_buffer.send_now("PONG %s" % line.split()[1])
                 else:
