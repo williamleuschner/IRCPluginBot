@@ -151,6 +151,50 @@ class IRCOutputBuffer():
         return self.is_in_error
 
 
+class Message():
+    def __init__(self, msg_type, message, headers, nick, userhost):
+        self.type = msg_type
+        self.message = message
+        self.headers = headers
+        self.nick = nick
+        self.userhost = userhost
+
+    def __init__(self, msg_type, message, headers, server_hostname):
+        self.type = msg_type
+        self.message = message
+        self.headers = headers
+        self.server_hostname = server_hostname
+
+    def __repr__(self):
+        is_server_msg = False
+        try:
+            a = self.server_hostname
+        except AttributeError:
+            is_server_msg = True
+        finally:
+            del a
+        if is_server_msg is not True:
+            repr_dict = {
+                'type': self.type,
+                'message': self.message,
+                'headers': self.headers,
+                'nick': self.nick,
+                'userhost': self.userhost
+            }
+        else:
+            repr_dict = {
+                'type': self.type,
+                'message': self.message,
+                'headers': self.headers,
+                'server_hostname': self.server_hostname
+            }
+        return repr(repr_dict)
+
+    def __str__(self):
+        str_str = ":%s :%s" % (" ".join(self.headers), self.message)
+        return str_str
+
+
 class IRC(threading.Thread):
     """
     Main IRC interface
@@ -164,4 +208,349 @@ class IRC(threading.Thread):
         password=None,
         ssl=False
     ):
+        threading.Thread.__init__(self)
+        self.running = True
+        self.hostname = hostname
+        self.port = port
+        self.nick = nick
+        self.realname = realname
+        self.password = password
+        self.ssl = ssl
+        self.debugging = False
+        self.callback = None
+        self.input_buffer = None
+        self.output_buffer = None
+        self.socket = None
+        # Send messages that aren't likely to trigger flood protection
+        # immediately, rather than queueing them.
+        self.reduce_flood_protection = True
+
+    ##########################################
+    #           Private Functions            #
+    ##########################################
+
+    def __identify(self):
+        """
+        Authenticate the bot with NickServ.
+        Example:
+        >>> self.__identify() # doctest +SKIP
+        NOTICE: You are now identified for PluginBot
+        """
         pass
+
+    def __connect(self):
+        """
+        Connect to the server, optionally using SSL.
+        """
+        # Debug print the hostname.
+        self.__print("Connecting to", self.hostname)
+        # Create a socket
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self.ssl:
+            # If using SSL, secure the socket.
+            self.socket = ssl.wrap_socket(self.socket)
+        # Connect to the server
+        self.socket.connect(self.hostname, self.port)
+        # Give instances of the input and output buffers access to the socket.
+        self.input_buffer = IRCInputBuffer(self.socket)
+        self.output_buffer = IRCOutputBuffer(self.socket)
+        if self.password is not None:
+            # If a server password is set, send it.
+            self.output_buffer.send("PASS %s" % self.password)
+        # Send the nickname
+        self.output_buffer.send("NICK %s" % self.nickname)
+        # Send the username and realname
+        self.output_buffer.send(
+            "USER %s 0 * :%s" % (self.nickname, self.realname)
+        )
+
+    def __disconnect(self, quit_message="Goodbye!"):
+        """
+        Disconnect from the server.
+        """
+        self.__print("Disconnecting from", self.hostname)
+        self.output_buffer.send("QUIT :%s" % quit_message)
+        self.socket.close()
+
+    def __print(self, message):
+        """
+        Print for debugging.
+        """
+        if self.debugging:
+            print(message)
+
+    def __message_factory(self, line):
+        """
+        Create a Message object for a given string `line`, assuming `line`
+        contains a raw line from an IRC server.
+        Example:
+        >>> self.__message_factory("PRIVMSG #bottesting :The sky is falling!")
+        TODO: make Message class
+        """
+        # :user!username@HostHash.net PRIVMSG #channel :Message
+        # :irc.example.com 332 nick #channel :Topic
+        line_list = line.split(":")
+        line_list = line_list[1:]
+        # This is now
+        #  0                                1
+        # ["sender MSGTYPE other_headers ", "Message"]
+        # If there are 3 or more elements in the list after nixing the empty
+        # one, make anything after the headers into one string
+        if len(line_list) >= 3:
+            # Cut off the headers
+            message_split = line_list[1:]
+            # Stick what's left back together with colons
+            message = ":".join(message_split)
+        # Split the headers string into a list
+        headers = line_list[0].split(" ")
+        # The nick!userhost of the sender is the first header
+        nick_userhost = headers[0]
+        if len(headers) < 2:
+            self.__debugPrint("Only one header in message: \"%s\"" % (line,))
+        else:
+            if "!" in nick_userhost:
+                nick, userhost = nick_userhost.split("!")
+                message_type = headers[1]
+                if message_type == 'PRIVMSG':
+                    if (
+                        message.startswith('\001ACTION ') and
+                        message.endswith('\001')
+                    ):
+                        message_type = 'ACTION'
+                        message = message[8:-1]
+                # Make Message object
+                msg_obj = Message(
+                    message_type,
+                    message,
+                    headers,
+                    nick,
+                    userhost
+                )
+            else:
+                message_type = headers[1]
+                self.__print("[%s] %s" % (message_type, message))
+                # Make Message object
+                msg_obj = Message(
+                    message_type,
+                    message,
+                    headers,
+                    nick_userhost
+                )
+            return msg_obj
+
+    ##########################################
+    #            Public Functions            #
+    ##########################################
+
+    def send_raw(self, message):
+        """
+        Send a raw message to the server.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.send_raw("MODE +o ChanServ") # doctest +SKIP
+        """
+        self.__print("Sending \"%s\" to the server, raw." % message)
+        self.output_buffer.send(message)
+
+    def say(self, message, destination):
+        """
+        Speak a given message.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.say("Hello, world!", "#bottesting") # doctest +SKIP
+        PluginBot in #bottesting: Hello, world!
+        """
+        message_string = "PRIVMSG %s :%s" % (destination, message)
+        self.output_buffer.send(message_string)
+
+    def do(self, action, destination):
+        """
+        Send an ACTION message.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.do("waves", "OtherBot") # doctest +SKIP
+        * PluginBot waves
+        """
+        message_string = "PRIVMSG %s :\001ACTION %s \001" % (
+            destination,
+            action
+        )
+        self.output_buffer.send(message_string)
+
+    def notice(self, message, destination):
+        """
+        Send a NOTICE.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.notice(
+        ...     "You will be kicked if you do that again.",
+        ...     "badguy"
+        ... )
+        NOTICE: You will be kicked if you do that again.
+        """
+        message_string = "NOTICE %s :%s" % (destination, message)
+        if self.reduce_flood_protection:
+            self.output_buffer.send_now(message_string)
+        else:
+            self.output_buffer.send(message_string)
+
+    def start(self):
+        """
+        Start the bot.
+        """
+        self.__print("The bot is now running.")
+        self.__connect()
+        # While stop() has not been called,
+        while self.running:
+            # Set line to an empty string, then fill it.
+            line = ""
+            while len(line) == 0:
+                # Whenever the line is empty, try to pull the next line from
+                # the input buffer.
+                try:
+                    line = self.input_buffer.next_line()
+                except socket.error as e:
+                    # Should it fail, debug print an error and reconnect.
+                    self.__print(
+                        "Socket error (%s). Reconnecting..." % repr(e)
+                    )
+                    self.reconnect()
+                # If it's a PING, respond immediately.
+                if line.startswith("PING"):
+                    self.output_buffer.send_now("PONG %s" % line.split()[1])
+                else:
+                    # Otherwise, send it to the function that builds Message
+                    # objects.
+                    message = self.__message_factory(line)
+                    self.callback(message)
+                # If the output buffer encounters an error, reconnect.
+                if self.output_buffer.is_in_error():
+                    self.__print(
+                        "Output buffer encountered an error. Reconnecting..."
+                    )
+                    self.reconnect()
+        # Exit the program after this loop ends.
+        exit()
+
+    def stop(self):
+        """
+        Stop the bot.
+        """
+        # Set the loop controller in run() to false
+        self.running = False
+        # Kill this thread too.
+        exit()
+
+    def reconnect(self):
+        """
+        Force the bot to reconnect to the server.
+        """
+        self.__disconnect(quit_message="Reconnecting...")
+        time.sleep(4)
+        self.__connect()
+
+    def join_channel(self, channel):
+        """
+        Join a channel.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.join_channel("#bottesting") # doctest +SKIP
+        PluginBot has joined #bottesting
+        """
+        self.__print("Joining %s..." % channel)
+        message = "JOIN %s" % channel
+        self.output_buffer.send(message)
+
+    def part_channel(self, channel):
+        """
+        Part a channel.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.part_channel("#bottesting") # doctest +SKIP
+        PluginBot has left #bottesting
+        """
+        self.__print("Parting %s..." % channel)
+        message = "PART %s" % channel
+        self.output_buffer.send(message)
+
+    def ban(self, banmask, channel, reason):
+        """
+        Ban someone from a channel.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.ban("*!badguy@example.com", "#bottesting", "Being a troll.")
+        PluginBot sets mode +b *!badguy@example.com.
+        """
+        self.__print("Banning in %s with mask %s..." % (channel, banmask))
+        message = "MODE +b %s %s :%s" % (channel, banmask, reason)
+        self.output_buffer.send(message)
+
+    def unban(self, banmask, channel):
+        """
+        Unban someone from a channel.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.unban("*!badguy@example.com", "#bottesting")
+        PluginBot sets mode -b *!badguy@example.com.
+        """
+        self.__print("Unbanning in %s with mask %s..." % (channel, banmask))
+        message = "MODE -b %s %s" % (channel, banmask)
+        self.output_buffer.send(message)
+
+    def kick(self, nick_to_kick, channel, reason):
+        """
+        Kick someone from a channel.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.kick("MrTroll", "#bottesting", "Stop trolling.")
+        MrTroll left #bottesting (Stop trolling.)
+        """
+        self.__print("Kicking %s..." % nick_to_kick)
+        message = "KICK %s %s :%s" % (channel, nick_to_kick, reason)
+        self.output_buffer.send(message)
+
+    def kickban(self, nick_to_kick, banmask, channel, reason):
+        """
+        Kick and ban someone from a channel.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.kickban(
+        ...     "MrTroll",
+        ...     "*!badguy@example.com",
+        ...     "#bottesting",
+        ...     "Stop trolling."
+        ... ) # doctest +SKIP
+        PluginBot sets mode +b *!badguy@example.com.
+        MrTroll has left #bottesting (Stop trolling.)
+        """
+        self.__print(
+            "Kickbanning %s with banmask %s from %s" % (
+                nick_to_kick,
+                banmask,
+                channel
+            )
+        )
+        self.ban(banmask, channel, reason)
+        self.kick(nick_to_kick, channel, reason)
+
+    def set_topic(self, channel, new_topic):
+        """
+        Set a channel's topic.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.set_topic("#bottesting", "Test your bots here!")
+        PluginBot changed the topic to "Test your bots here!".
+        """
+        self.__print("Changing topic in %s to \"%s\"." % (channel, new_topic))
+        message = "TOPIC %s :%s" % (channel, new_topic)
+        self.output_buffer.send(message)
+
+    def set_debugging(self, new_state):
+        """
+        Change the debugging mode of the bot.
+        Example:
+        >>> I = IRC() # doctest +SKIP
+        >>> I.set_debugging(True)
+        """
+        self.__print("Setting debugging to %s" % str(new_state))
+        self.debugging = new_state

@@ -7,6 +7,7 @@
 # Used for configuration files
 import configparser
 # Used for interacting with IRC
+from irc import IRC
 
 config_file_loc = "config/irc_plugin_bot.ini"
 
@@ -77,18 +78,16 @@ def main():
     """
     # Pull out just the server configuration
     serverconf = config['server']
-    # # Create an ircBot object to interface with the server
-    # bot = ircBot(
-    #     serverconf.get("hostname", "irc.ircfox.net"),
-    #     int(serverconf.get("port", "6697")),
-    #     serverconf.get("nick", "FurBot"),
-    #     serverconf.get("realname", "A plugin-exensible IRC bot"),
-    #     ssl=bool(serverconf.get("ssl", "True")),
-    # )
-    # # Set debugging, if necessary
-    # bot.debugging(bool(config['debug'].get("debug", "False")))
-    # # Runs the bot.
-    # bot.run()
+    # Create an ircBot object to interface with the server
+    irc = IRC(
+        serverconf.get("hostname", "irc.ircfox.net"),
+        int(serverconf.get("port", "6697")),
+        serverconf.get("nick", "FurBot"),
+        serverconf.get("realname", "A plugin-exensible IRC bot"),
+        ssl=bool(serverconf.get("ssl", "True"))
+    )
+    irc.debugging(bool(config['debug'].get("debug", "True")))
+    irc.start()
     # Starts the console.
     run_console()
 
