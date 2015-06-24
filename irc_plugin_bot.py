@@ -7,7 +7,9 @@
 # Used for configuration files
 import configparser
 # Used for interacting with IRC
-from irc import IRC
+import irc
+# Plugins
+from plugin_mount import ActionProvider
 
 config_file_loc = "config/irc_plugin_bot-debug.ini"
 
@@ -15,51 +17,81 @@ config = configparser.ConfigParser()
 config.read(config_file_loc)
 
 
-# Plugin Mount: Attachement for plugins
-# Taken from http://martyalchin.com/2008/jan/10/simple-plugin-framework/
-# On 2105-06-21
-class PluginMount(type):
+def quit_cmd(msg_obj):
     """
-    Class for implementing plugin support
-    Use ActionProvider for implementation.
+    Quit the bot
     """
-
-    def __init__(self, cls, name, bases, attrs):
-        if not hasattr(cls, 'plugins'):
-            # This branch only executes when processing the mount point itself.
-            # So, since this is a new plugin type, not an implementation, this
-            # class shouldn't be registered as a plugin. Instead, it sets up a
-            # list where plugins can be registered later.
-            cls.plugins = []
-        else:
-            # This must be a plugin implementation, which should be registered.
-            # Simply appending it to the list is all that's needed to keep
-            # track of it later.
-            cls.plugins.append(cls)
+    if msg_obj.is_user_msg():
+        if msg_obj.userhost == config['admins'].get("primary"):
+            pass
 
 
-class ActionProvider:
+def privmsg(msg_obj):
     """
-    Mount point for plugins which refer to actions that can be performed.
-
-    Plugins implementing this class should provide the following attributes:
-
-    ========  ========================================================
-    title     The text to be displayed, describing the action
-
-    url       The URL to the view where the action will be carried out
-
-    selected  Boolean indicating whether the action is the one
-              currently being performed
-    ========  ========================================================
+    Handle PRIVMSG messages from the server
     """
-    __metaclass__ = PluginMount
+    # If the text of the message starts with an exclamation point,
+    # it's a command.
+    if msg_obj.text.startswith("!"):
+        if msg_obj.text.startswith("!quit"):
+            quit_cmd(msg_obj)
+        elif msg_obj.text.startswith("!join "):
+            join_cmd(msg_obj)
+        elif msg_obj.text.startswith("!part "):
+            part_cmd(msg_obj)
+        elif msg_obj.text.startswith("!kick "):
+            kick_cmd(msg_obj)
+        elif msg_obj.text.startswith("!ban "):
+            ban_cmd(msg_obj)
+        elif msg_obj.text.startswith("!kickban "):
+            kickban_cmd(msg_obj)
+
+def action(msg_obj):
+    """
+    Handle ACTION messages from the server
+    """
+    pass
 
 
-# Temporary testing function to handle the callback.
-def temp_func(msg_obj):
-    """Temporary!"""
-    print(str(msg_obj))
+def part_msg(msg_obj):
+    """
+    Handle PART messages from the server
+    """
+    pass
+
+
+def join_msg(msg_obj):
+    """
+    Handle JOIN messages from the server
+    """
+    pass
+
+
+def unhandled_msg(msg_obj):
+    """
+    Handle messages that didn't get captured by any other
+    function.
+    """
+    pass
+
+
+def delegate_message(msg_obj):
+    """
+    Delegate the message object to the appropriate function based on the type.
+    """
+    # Switch on the type
+    if msg_obj.type == "PRIVMSG":
+        privmsg(msg_obj)
+    elif msg_obj.type == "ACTION":
+        action(msg_obj)
+    elif msg_obj.type == "PART":
+        part_msg(msg_obj)
+    elif msg_obj.type == "JOIN":
+        join_msg(msg_obj)
+    else:
+        unhandled_msg(msg_obj)
+    if config['debug'].get("debug", "False"):
+        print(str(msg_obj))
 
 
 def str2bool(to_test):
@@ -112,7 +144,7 @@ def main():
         ssl=str2bool(serverconf.get("ssl", "False"))
     )
     irc.set_debugging(bool(config['debug'].get("debug", "True")))
-    irc.register_callback(temp_func)
+    irc.register_callback(delegate_message)
     irc.start()
     # Starts the console.
     run_console()
