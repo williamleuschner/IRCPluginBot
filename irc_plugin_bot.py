@@ -12,6 +12,7 @@ import irc.strings
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
 import irc.connection
 import ssl
+import irc_db
 # Plugins
 from plugin_mount import ActionProvider
 # Allow the bot to quit
