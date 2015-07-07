@@ -49,6 +49,8 @@ class PluginBot(irc.bot.SingleServerIRCBot):
         self.channel = channel
         self.plugin_cmd_prefixes = []
         self.plugin_cmds = []
+        self.channels = {}
+        self.channels[channel] = Channel(channel)
 
     def on_nicknameinuse(self, c, e):
         c.nick(c.get_nickname() + "_")
@@ -68,6 +70,30 @@ class PluginBot(irc.bot.SingleServerIRCBot):
         if (message.startswith("!")):
             self.do_command(e, message)
         return
+
+    def on_join(self, c, e):
+        print("JOIN!")
+        print(e)
+
+    def on_part(self, c, e):
+        print("PART!")
+        print(e)
+
+    def on_kick(self, c, e):
+        print("KICK!")
+        print(e)
+
+    def on_nick(self, c, e):
+        print("NICK!")
+        print(e)
+
+    def on_quit(self, c, e):
+        print("QUIT!")
+        print(e)
+
+    def on_whoreply(self, c, e):
+        print("WHO REPLY!")
+        print(e)
 
     def on_dccmsg(self, c, e):
         # non-chat DCC messages are raw bytes; decode as text

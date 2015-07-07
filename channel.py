@@ -2,6 +2,7 @@ class Channel(object):
     """An IRC channel"""
     def __init__(self, name):
         self.userdict = {}
+        self.admins = {}
         self.modes = {}
         self.name = name
 
@@ -32,6 +33,20 @@ class Channel(object):
         """
         userhost = obj.userhost()
         self.userdict[userhost] = obj
+
+    def add_admin(self, obj):
+        """
+        Adds a user object to the admin dictionary.
+        """
+        userhost = obj.userhost()
+        self.admindict[userhost] = obj
+
+    def remove_admin(self, obj):
+        """
+        Removes a user object from the admin dictionary.
+        """
+        userhost = obj.userhost()
+        self.admindict.pop(userhost)
 
     def remove_user(self, obj):
         """
