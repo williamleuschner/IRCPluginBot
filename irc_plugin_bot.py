@@ -12,8 +12,8 @@ import irc.strings
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
 import irc.connection
 import ssl
-from channel import Channel, ChannelError
-from user import User, UserError
+import channel
+import user
 # Plugins
 from plugin_mount import ActionProvider
 # Allow the bot to quit
@@ -25,13 +25,21 @@ config = configparser.ConfigParser()
 config.read(config_file_loc)
 
 
+def erepr(e):
+    return {'e.type': e.type,
+            'e.source': e.source,
+            'e.target': e.target,
+            'e.arguments': e.arguments,
+            'e.tags': e.tags}
+
+
 class PluginBot(irc.bot.SingleServerIRCBot):
     """
     The main bot definition
     """
     def __init__(
         self,
-        channel,
+        def_channel,
         nickname,
         realname,
         server,
@@ -46,17 +54,18 @@ class PluginBot(irc.bot.SingleServerIRCBot):
             realname,
             **self.__connect_params
         )
-        self.channel = channel
+        self.channel = def_channel
         self.plugin_cmd_prefixes = []
         self.plugin_cmds = []
         self.channels = {}
-        self.channels[channel] = Channel(channel)
+        self.channels[def_channel] = channel.Channel(def_channel)
 
     def on_nicknameinuse(self, c, e):
         c.nick(c.get_nickname() + "_")
 
     def on_welcome(self, c, e):
         c.join(self.channel)
+        c.send_raw("WHO %s" % self.channel)
 
     def on_privmsg(self, c, e):
         print("e =", str(e))
@@ -73,27 +82,41 @@ class PluginBot(irc.bot.SingleServerIRCBot):
 
     def on_join(self, c, e):
         print("JOIN!")
-        print(e)
+        print(erepr(e))
+        self.channels[e.target].add_user(user.User(
+            e.source.nick,
+            e.source.userhost
+        ))
 
     def on_part(self, c, e):
         print("PART!")
-        print(e)
+        print(erepr(e))
+        self.channels[e.target].remove_user(e.source.userhost)
 
     def on_kick(self, c, e):
         print("KICK!")
-        print(e)
+        print(erepr(e))
+        self.channels[e.target].remove_user(e.source.userhost)
 
     def on_nick(self, c, e):
         print("NICK!")
-        print(e)
+        print(erepr(e))
+        for channel in self.channels:
+            print("Channel repr:",repr(self.channels[channel]))
+            if self.channels[channel].has_user(e.source.userhost):
+                useredit = self.channels[channel].get_user(e.source.userhost)
+                useredit.nick = e.target
+
+            print("Post channel repr:",repr(self.channels[channel]))
 
     def on_quit(self, c, e):
         print("QUIT!")
-        print(e)
+        print(erepr(e))
+        self.channels[e.target].remove_user(e.source.userhost)
 
     def on_whoreply(self, c, e):
         print("WHO REPLY!")
-        print(e)
+        print(erepr(e))
 
     def on_dccmsg(self, c, e):
         # non-chat DCC messages are raw bytes; decode as text
